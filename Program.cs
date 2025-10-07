@@ -50,8 +50,11 @@ internal class Program
         {
             try
             {
+                // Ensure docfxPath includes docfx.json filename
+                docfxPath = EnsureDocfxJsonPath(docfxPath);
+                
                 var tempDir = await CloneRepository(repoUrl, docfxPath, branch, output, silent);
-                var docfxJsonPath = Path.Combine(output, docfxPath);
+                var docfxJsonPath = Path.Combine(tempDir, docfxPath);
                 var docfxDirectory = Path.GetDirectoryName(docfxJsonPath)!;
 
                 if (!silent)
@@ -94,6 +97,7 @@ internal class Program
         var outputOption = new Option<string?>("--output", "Output directory for cloned repository");
         var silentOption = new Option<bool>("--silent", "Suppress progress output");
         var portOption = new Option<int?>("--port", "Port for the DocFx serve command");
+        var noLaunchOption = new Option<bool>("--no-launch", "Don't automatically launch browser");
 
         serveCommand.AddArgument(repoUrlArg);
         serveCommand.AddArgument(docfxPathArg);
@@ -101,11 +105,15 @@ internal class Program
         serveCommand.AddOption(outputOption);
         serveCommand.AddOption(silentOption);
         serveCommand.AddOption(portOption);
+        serveCommand.AddOption(noLaunchOption);
 
-        serveCommand.SetHandler(async (string repoUrl, string docfxPath, string? branch, string? output, bool silent, int? port) =>
+        serveCommand.SetHandler(async (string repoUrl, string docfxPath, string? branch, string? output, bool silent, int? port, bool noLaunch) =>
         {
             try
             {
+                // Ensure docfxPath includes docfx.json filename
+                docfxPath = EnsureDocfxJsonPath(docfxPath);
+                
                 var tempDir = await CloneRepository(repoUrl, docfxPath, branch, output, silent);
                 var docfxJsonPath = Path.Combine(tempDir, docfxPath);
                 var docfxDirectory = Path.GetDirectoryName(docfxJsonPath)!;
@@ -143,7 +151,7 @@ internal class Program
                     Environment.Exit(0);
                 };
 
-                await RunDocFxServeCommand(docfxJsonPath, port, silent);
+                await RunDocFxServeCommand(docfxJsonPath, port, silent, noLaunch);
 
                 // Clean up if using temporary directory
                 if (string.IsNullOrEmpty(output))
@@ -160,13 +168,26 @@ internal class Program
                 Console.Error.WriteLine($"Error: {ex.Message}");
                 Environment.Exit(1);
             }
-        }, repoUrlArg, docfxPathArg, branchOption, outputOption, silentOption, portOption);
+        }, repoUrlArg, docfxPathArg, branchOption, outputOption, silentOption, portOption, noLaunchOption);
 
         return serveCommand;
     }
 
+    private static string EnsureDocfxJsonPath(string docfxPath)
+    {
+        // If the path doesn't end with docfx.json, append it
+        if (!docfxPath.EndsWith("docfx.json", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.Combine(docfxPath.TrimEnd('/', '\\'), "docfx.json");
+        }
+        return docfxPath;
+    }
+
     private static async Task<string> CloneRepository(string repoUrl, string docfxPath, string? branch, string? output, bool silent)
     {
+        // Ensure docfxPath includes docfx.json filename
+        docfxPath = EnsureDocfxJsonPath(docfxPath);
+        
         string outputDir;
         
         if (!string.IsNullOrEmpty(output))
@@ -196,7 +217,7 @@ internal class Program
         var gitUtility = new GitCloningUtility(outputDir, callback);
         var integration = new DocFxGitIntegration(gitUtility, callback);
 
-        var result = await integration.CloneAndParseAsync(repoUrl, docfxPath, branch);
+        var result = await integration.CloneAndParseAsync(repoUrl, docfxPath, branch, true);
 
         if (!silent)
         {
@@ -264,7 +285,33 @@ internal class Program
         }
     }
 
-    private static async Task RunDocFxServeCommand(string docfxJsonPath, int? port, bool silent)
+    private static void LaunchBrowser(string url, bool silent)
+    {
+        try
+        {
+            if (!silent)
+            {
+                Console.WriteLine($"Opening browser at: {url}");
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            };
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            if (!silent)
+            {
+                Console.WriteLine($"Failed to launch browser: {ex.Message}");
+                Console.WriteLine($"Please manually open: {url}");
+            }
+        }
+    }
+
+    private static async Task RunDocFxServeCommand(string docfxJsonPath, int? port, bool silent, bool noLaunch)
     {
         var docfxDirectory = Path.GetDirectoryName(docfxJsonPath)!;
         var docfxJsonFile = Path.GetFileName(docfxJsonPath);
@@ -289,6 +336,8 @@ internal class Program
 
         using var process = new Process { StartInfo = processInfo };
         
+        bool browserLaunched = false;
+        
         if (!silent)
         {
             process.OutputDataReceived += (sender, e) =>
@@ -296,6 +345,20 @@ internal class Program
                 if (e.Data != null)
                 {
                     Console.WriteLine(e.Data);
+                    
+                    // Launch browser when we see the "Serving" message and haven't launched yet
+                    if (!browserLaunched && !noLaunch && (e.Data.Contains("Serving") || e.Data.Contains("localhost")))
+                    {
+                        browserLaunched = true;
+                        Task.Run(async () =>
+                        {
+                            // Wait a moment for the server to be fully ready
+                            await Task.Delay(2000);
+                            var serverPort = port ?? 8080; // DocFx default port is 8080
+                            var url = $"http://localhost:{serverPort}";
+                            LaunchBrowser(url, silent);
+                        });
+                    }
                 }
             };
         }
