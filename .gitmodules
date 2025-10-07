@@ -1,0 +1,3 @@
+[submodule "DocFxClone"]
+	path = DocFxClone
+	url = https://github.com/rwrife/DocFxClone.git

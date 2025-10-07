@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Git2DocFx</AssemblyName>
+    <RootNamespace>Git2DocFx</RootNamespace>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <!-- Exclude the DocFxClone directory from default compile -->
+    <Compile Remove="DocFxClone\**" />
+    <EmbeddedResource Remove="DocFxClone\**" />
+    <None Remove="DocFxClone\**" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="DocFxClone\DocFxClone.csproj" />
+  </ItemGroup>
+</Project>
